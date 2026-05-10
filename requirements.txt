@@ -1,0 +1,7 @@
+flask
+flask-cors
+web3
+py-solc-x
+qrcode
+pillow
+eth-tester

@@ -1,5 +1,5 @@
 
-from flask import Flask, request, jsonify, render_template_string, send_file
+from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect, url_for
 from flask_cors import CORS
 from web3 import Web3, EthereumTesterProvider
 from solcx import compile_standard, install_solc
@@ -9,6 +9,7 @@ import threading
 import qrcode
 import os
 from io import BytesIO
+import hashlib
 
 print("=" * 60)
 print("FARM TRACE - COMPLETE SYSTEM WITH QR CODE")
@@ -89,43 +90,59 @@ print(f"✓ Contract deployed at: {contract_address}")
 
 STAGES = ['Harvested', 'In Warehouse', 'In Transit', 'At Distributor', 'At Retailer', 'Sold']
 
-# Tamil Nadu locations
-TAMIL_NADU_LOCATIONS = [
-    'Chennai',
-    'Coimbatore',
-    'Madurai',
-    'Tiruchirappalli',
-    'Salem',
-    'Tirunelveli',
-    'Erode',
-    'Vellore',
-    'Thoothukudi',
-    'Thanjavur',
-    'Dindigul',
-    'Kanchipuram',
-    'Karur',
-    'Rajapalayam',
-    'Nagercoil',
-    'Kumbakonam',
-    'Tiruppur',
-    'Cuddalore',
-    'Pollachi',
-    'Kanyakumari'
-]
+# Indian states and cities data
+INDIA_STATES_CITIES = {
+    'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool', 'Tirupati', 'Rajahmundry', 'Kakinada', 'Anantapur', 'Eluru'],
+    'Arunachal Pradesh': ['Itanagar', 'Tawang', 'Ziro', 'Pasighat', 'Bomdila', 'Tezu', 'Khonsa', 'Anini', 'Yingkiong', 'Changlang'],
+    'Assam': ['Guwahati', 'Silchar', 'Dibrugarh', 'Jorhat', 'Nagaon', 'Tinsukia', 'Tezpur', 'Bongaigaon', 'Karimganj', 'Sivasagar'],
+    'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia', 'Darbhanga', 'Bihar Sharif', 'Arrah', 'Begusarai', 'Katihar'],
+    'Chhattisgarh': ['Raipur', 'Bhilai', 'Bilaspur', 'Durg', 'Korba', 'Raigarh', 'Ambikapur', 'Dhamtari', 'Janjgir', 'Mahasamund'],
+    'Goa': ['Panaji', 'Margao', 'Vasco da Gama', 'Mapusa', 'Ponda', 'Bicholim', 'Curchorem', 'Sanquelim', 'Cortalim', 'Quepem'],
+    'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Gandhinagar', 'Bhavnagar', 'Jamnagar', 'Junagadh', 'Anand', 'Nadiad'],
+    'Haryana': ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Karnal', 'Sonipat', 'Rohtak', 'Hisar', 'Bhiwani', 'Yamunanagar'],
+    'Himachal Pradesh': ['Shimla', 'Manali', 'Dharamshala', 'Solan', 'Mandi', 'Kullu', 'Palampur', 'Bilaspur', 'Chamba', 'Hamirpur'],
+    'Jharkhand': ['Ranchi', 'Jamshedpur', 'Dhanbad', 'Bokaro', 'Deoghar', 'Phusro', 'Hazaribagh', 'Giridih', 'Ramgarh', 'Medininagar'],
+    'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi', 'Gulbarga', 'Davanagere', 'Ballari', 'Shivamogga', 'Tumakuru'],
+    'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam', 'Palakkad', 'Alappuzha', 'Malappuram', 'Kannur', 'Kasaragod'],
+    'Madhya Pradesh': ['Bhopal', 'Indore', 'Gwalior', 'Jabalpur', 'Ujjain', 'Sagar', 'Ratlam', 'Satna', 'Rewa', 'Murwara'],
+    'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Thane', 'Nashik', 'Aurangabad', 'Solapur', 'Amravati', 'Navi Mumbai', 'Kolhapur'],
+    'Manipur': ['Imphal', 'Thoubal', 'Bishnupur', 'Churachandpur', 'Kakching', 'Ukhrul', 'Senapati', 'Tamenglong', 'Chandel', 'Noney'],
+    'Meghalaya': ['Shillong', 'Tura', 'Nongstoin', 'Jowai', 'Baghmara', 'Williamnagar', 'Resubelpara', 'Mawsynram', 'Khliehriat', 'Nongpoh'],
+    'Mizoram': ['Aizawl', 'Lunglei', 'Champhai', 'Serchhip', 'Kolasib', 'Lawngtlai', 'Saitual', 'Saitual', 'Hnahthial', 'Mamit'],
+    'Nagaland': ['Kohima', 'Dimapur', 'Mokokchung', 'Tuensang', 'Wokha', 'Zunheboto', 'Phek', 'Kiphire', 'Longleng', 'Peren'],
+    'Odisha': ['Bhubaneswar', 'Cuttack', 'Rourkela', 'Brahmapur', 'Sambalpur', 'Puri', 'Balasore', 'Angul', 'Bhadrak', 'Baripada'],
+    'Punjab': ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Bathinda', 'Mohali', 'Firozpur', 'Pathankot', 'Hoshiarpur', 'Kapurthala'],
+    'Rajasthan': ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer', 'Bikaner', 'Bhilwara', 'Alwar', 'Bharatpur', 'Sikar'],
+    'Sikkim': ['Gangtok', 'Namchi', 'Gyalshing', 'Mangan', 'Rangpo', 'Jorethang', 'Singtam', 'Ravangla', 'Pelling', 'Lachung'],
+    'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem', 'Tirunelveli', 'Erode', 'Vellore', 'Thoothukudi', 'Thanjavur'],
+    'Telangana': ['Hyderabad', 'Warangal', 'Nizamabad', 'Karimnagar', 'Khammam', 'Ramagundam', 'Mahabubnagar', 'Nalgonda', 'Adilabad', 'Miryalaguda'],
+    'Tripura': ['Agartala', 'Udaipur', 'Dharmanagar', 'Pratapgarh', 'Kailashahar', 'Belonia', 'Khowai', 'Amarpur', 'Teliamura', 'Kamalpur'],
+    'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Ghaziabad', 'Agra', 'Varanasi', 'Meerut', 'Allahabad', 'Bareilly', 'Aligarh', 'Moradabad'],
+    'Uttarakhand': ['Dehradun', 'Haridwar', 'Roorkee', 'Haldwani', 'Rishikesh', 'Kashipur', 'Rudrapur', 'Kashipur', 'Pithoragarh', 'Mukteshwar'],
+    'West Bengal': ['Kolkata', 'Howrah', 'Durgapur', 'Siliguri', 'Asansol', 'Bardhaman', 'Malda', 'Kharagpur', 'Berhampore', 'Baharampur'],
+    'Delhi': ['New Delhi', 'North Delhi', 'South Delhi', 'East Delhi', 'West Delhi', 'Central Delhi', 'North East Delhi', 'North West Delhi', 'South West Delhi', 'South East Delhi'],
+    'Jammu & Kashmir': ['Srinagar', 'Jammu', 'Anantnag', 'Baramulla', 'Sopore', 'Kulgam', 'Pulwama', 'Shopian', 'Bandipora', 'Ganderbal'],
+    'Ladakh': ['Leh', 'Kargil', 'Nubra', 'Zanskar', 'Changthang', 'Sham Valley', 'Khardung La', 'Pangong Tso', 'Tso Moriri', 'Hemis'],
+    'Lakshadweep': ['Kavaratti', 'Agatti', 'Amini', 'Andrott', 'Bitra', 'Chetlat', 'Kadmat', 'Kalpeni', 'Kiltan', 'Minicoy'],
+    'Puducherry': ['Puducherry', 'Karaikal', 'Mahe', 'Yanam', 'Oulgaret', 'Villianur', 'Mudaliarpet', 'Lawspet', 'Ariyankuppam', 'Bahour'],
+    'Andaman & Nicobar': ['Port Blair', 'Car Nicobar', 'Havelock Island', 'Neil Island', 'Mayabunder', 'Diglipur', 'Rangat', 'Long Island', 'Little Andaman', 'Great Nicobar']
+}
 
-# Banana varieties
-BANANA_VARIETIES = [
-    'Robusta (Poovan)',
-    'Nendran',
-    'Red Banana',
-    'Rasthali',
-    'Karpuravalli',
-    'Monthan',
-    'Yelakki',
-    'Grand Naine',
-    'Cavendish',
-    'Pachanadan'
-]
+# Food categories and common items
+FOOD_CATEGORIES = {
+    'Fruits': ['Apple', 'Banana', 'Orange', 'Mango', 'Grapes', 'Strawberry', 'Pineapple', 'Watermelon', 'Papaya', 'Guava'],
+    'Vegetables': ['Tomato', 'Potato', 'Onion', 'Carrot', 'Cabbage', 'Spinach', 'Broccoli', 'Cauliflower', 'Capsicum', 'Cucumber'],
+    'Grains': ['Rice', 'Wheat', 'Corn', 'Barley', 'Oats', 'Millet', 'Quinoa', 'Sorghum'],
+    'Dairy': ['Milk', 'Cheese', 'Butter', 'Yogurt', 'Curd', 'Ghee', 'Cream', 'Paneer'],
+    'Pulses': ['Lentil', 'Chickpea', 'Beans', 'Peas', 'Soybean', 'Moong', 'Masoor', 'Urad'],
+    'Spices': ['Turmeric', 'Chili', 'Coriander', 'Cumin', 'Pepper', 'Cardamom', 'Cinnamon', 'Clove'],
+    'Other': ['Honey', 'Jaggery', 'Sugar', 'Salt', 'Oil', 'Tea', 'Coffee', 'Nuts']
+}
+
+# Flatten all items for easy access
+ALL_FOOD_ITEMS = []
+for category, items in FOOD_CATEGORIES.items():
+    ALL_FOOD_ITEMS.extend(items)
 
 def generate_qr_code(product_id):
     """Generate QR code for product ID and save to local directory"""
@@ -155,15 +172,78 @@ def generate_qr_code(product_id):
         print(f"✗ Error generating QR code: {str(e)}")
         return None
 
-# ============== BACKEND APP (For Staff) ==============
-backend_app = Flask(__name__)
-CORS(backend_app)
+# ============== UNIFIED APP WITH AUTHENTICATION ==============
+app = Flask(__name__)
+app.secret_key = 'farm_trace_secret_key_2024'  # Change in production
+CORS(app)
 
-@backend_app.route('/')
-def backend_home():
-    return render_template_string(BACKEND_HTML)
+# Simple user storage (in production, use a proper database)
+USERS = {
+    'admin': {'password': hashlib.sha256('admin123'.encode()).hexdigest(), 'role': 'staff'},
+    'staff1': {'password': hashlib.sha256('staff123'.encode()).hexdigest(), 'role': 'staff'},
+    'customer': {'password': hashlib.sha256('customer123'.encode()).hexdigest(), 'role': 'customer'}
+}
 
-@backend_app.route('/api/products/register', methods=['POST'])
+# ============== AUTHENTICATION ROUTES ==============
+@app.route('/')
+def index():
+    if 'user' in session:
+        user_role = session.get('role')
+        if user_role == 'staff':
+            return render_template_string(STAFF_HTML)
+        else:
+            return render_template_string(CUSTOMER_HTML)
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.json.get('username', '')
+    password = request.json.get('password', '')
+    
+    if username in USERS and USERS[username]['password'] == hashlib.sha256(password.encode()).hexdigest():
+        session['user'] = username
+        session['role'] = USERS[username]['role']
+        return jsonify({'success': True, 'role': USERS[username]['role']})
+    
+    return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.json.get('username', '')
+    password = request.json.get('password', '')
+    role = request.json.get('role', 'customer')
+    
+    if not username or not password:
+        return jsonify({'success': False, 'error': 'Username and password required'}), 400
+    
+    if username in USERS:
+        return jsonify({'success': False, 'error': 'Username already exists'}), 400
+    
+    USERS[username] = {
+        'password': hashlib.sha256(password.encode()).hexdigest(),
+        'role': role
+    }
+    
+    return jsonify({'success': True, 'message': 'Registration successful'})
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
+
+@app.route('/staff')
+def staff_dashboard():
+    if 'user' not in session or session.get('role') != 'staff':
+        return redirect(url_for('index'))
+    return render_template_string(STAFF_HTML)
+
+@app.route('/customer')
+def customer_dashboard():
+    if 'user' not in session or session.get('role') != 'customer':
+        return redirect(url_for('index'))
+    return render_template_string(CUSTOMER_HTML)
+
+@app.route('/api/products/register', methods=['POST'])
 def register_product():
     """Register new product and generate QR code"""
     try:
@@ -199,7 +279,7 @@ def register_product():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@backend_app.route('/api/qrcode/<product_id>', methods=['GET'])
+@app.route('/api/qrcode/<product_id>', methods=['GET'])
 def get_qr_code(product_id):
     """Retrieve QR code image"""
     try:
@@ -211,7 +291,7 @@ def get_qr_code(product_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@backend_app.route('/api/products/update', methods=['POST'])
+@app.route('/api/products/update', methods=['POST'])
 def update_product():
     """Update product stage"""
     try:
@@ -235,7 +315,7 @@ def update_product():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@backend_app.route('/api/products/<product_id>', methods=['GET'])
+@app.route('/api/products/<product_id>', methods=['GET'])
 def get_product_backend(product_id):
     """Get product details for backend"""
     try:
@@ -300,7 +380,7 @@ def get_product_backend(product_id):
         print(f"Error in get_product_backend: {e}") # Added print for debugging
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@backend_app.route('/api/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
 def health_backend():
     return jsonify({
         'status': 'OK',
@@ -309,15 +389,8 @@ def health_backend():
         'account': account
     })
 
-# ============== CUSTOMER APP ==============
-customer_app = Flask(__name__)
-CORS(customer_app)
-
-@customer_app.route('/')
-def customer_home():
-    return render_template_string(CUSTOMER_HTML)
-
-@customer_app.route('/api/track/<product_id>', methods=['GET'])
+# ============== CUSTOMER APP ROUTES ==============
+@app.route('/api/track/<product_id>', methods=['GET'])
 def track_product(product_id):
     """Track product - Customer view"""
     try:
@@ -380,16 +453,220 @@ def track_product(product_id):
         print(f"Error in track_product: {e}") # Added print for debugging
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@customer_app.route('/api/health', methods=['GET'])
-def health_customer():
+@app.route('/api/health', methods=['GET'])
+def health_check():
     return jsonify({
         'status': 'OK',
         'contract': contract_address,
-        'blockNumber': w3.eth.block_number
+        'blockNumber': w3.eth.block_number,
+        'account': account
     })
 
 # ============== HTML TEMPLATES ==============
-BACKEND_HTML = '''
+LOGIN_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farm Supply Chain - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gradient-to-br from-green-50 to-blue-50 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full">
+        <div class="bg-white rounded-2xl shadow-2xl p-8">
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-green-600 to-blue-600 rounded-full mb-4">
+                    <i class="fas fa-leaf text-white text-3xl"></i>
+                </div>
+                <h1 class="text-3xl font-bold text-gray-800 mb-2">Farm Supply Chain</h1>
+                <p class="text-gray-600">Login to your account</p>
+            </div>
+
+            <div id="loginForm">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                        <input type="text" id="username" 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="Enter your username">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Password</label>
+                        <input type="password" id="password" 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="Enter your password">
+                    </div>
+                    
+                    <button onclick="handleLogin()" 
+                        class="w-full bg-gradient-to-r from-green-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:from-green-700 hover:to-blue-700 transition-all transform hover:scale-105 shadow-lg">
+                        <i class="fas fa-sign-in-alt mr-2"></i>Login
+                    </button>
+                </div>
+
+                <div class="mt-6 text-center">
+                    <p class="text-gray-600">Don't have an account? 
+                        <button onclick="showRegister()" class="text-green-600 hover:text-green-700 font-semibold">Register here</button>
+                    </p>
+                </div>
+
+                <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <p class="text-xs text-gray-500 font-semibold mb-2">Demo Accounts:</p>
+                    <p class="text-xs text-gray-600">Staff: admin / admin123</p>
+                    <p class="text-xs text-gray-600">Customer: customer / customer123</p>
+                </div>
+            </div>
+
+            <div id="registerForm" class="hidden">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                        <input type="text" id="regUsername" 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="Choose a username">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Password</label>
+                        <input type="password" id="regPassword" 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="Choose a password">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Account Type</label>
+                        <select id="regRole" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                            <option value="customer">Customer (Track Products)</option>
+                            <option value="staff">Staff (Manage Products)</option>
+                        </select>
+                    </div>
+                    
+                    <button onclick="handleRegister()" 
+                        class="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg">
+                        <i class="fas fa-user-plus mr-2"></i>Register
+                    </button>
+                </div>
+
+                <div class="mt-6 text-center">
+                    <p class="text-gray-600">Already have an account? 
+                        <button onclick="showLogin()" class="text-green-600 hover:text-green-700 font-semibold">Login here</button>
+                    </p>
+                </div>
+            </div>
+
+            <div id="message" class="mt-4 hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+
+        function showRegister() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+            document.getElementById('message').classList.add('hidden');
+        }
+
+        function showLogin() {
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('message').classList.add('hidden');
+        }
+
+        function showMessage(message, isError = false) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = `mt-4 p-4 rounded-lg ${isError ? 'bg-red-50 border-2 border-red-500 text-red-800' : 'bg-green-50 border-2 border-green-500 text-green-800'}`;
+            messageDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <i class="fas ${isError ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            messageDiv.classList.remove('hidden');
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                showMessage('Please enter both username and password', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage('Login successful! Redirecting...', false);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showMessage(data.error || 'Login failed', true);
+                }
+            } catch (error) {
+                showMessage('Connection error. Please try again.', true);
+            }
+        }
+
+        async function handleRegister() {
+            const username = document.getElementById('regUsername').value.trim();
+            const password = document.getElementById('regPassword').value;
+            const role = document.getElementById('regRole').value;
+
+            if (!username || !password) {
+                showMessage('Please enter both username and password', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage('Registration successful! Please login.', false);
+                    setTimeout(() => {
+                        showLogin();
+                        document.getElementById('username').value = username;
+                    }, 1500);
+                } else {
+                    showMessage(data.error || 'Registration failed', true);
+                }
+            } catch (error) {
+                showMessage('Connection error. Please try again.', true);
+            }
+        }
+
+        // Allow Enter key to submit
+        document.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                if (!document.getElementById('registerForm').classList.contains('hidden')) {
+                    handleRegister();
+                } else {
+                    handleLogin();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+'''
+
+STAFF_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -402,41 +679,91 @@ BACKEND_HTML = '''
 <body class="bg-gray-50 min-h-screen">
     <div class="max-w-7xl mx-auto p-6">
         <header class="bg-gradient-to-r from-green-600 to-blue-600 text-white p-8 rounded-lg shadow-xl mb-8">
-            <h1 class="text-4xl font-bold flex items-center gap-3">
-                <i class="fas fa-tractor"></i>
-                Farm Supply Chain Management
-            </h1>
-            <p class="mt-2 text-green-100">Complete product lifecycle tracking on blockchain</p>
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-4xl font-bold flex items-center gap-3">
+                        <i class="fas fa-tractor"></i>
+                        Farm Supply Chain Management
+                    </h1>
+                    <p class="mt-2 text-green-100">Complete product lifecycle tracking on blockchain</p>
+                </div>
+                <div class="flex gap-2">
+                    <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold">
+                        <i class="fas fa-user mr-1"></i>{{ session.get('user', 'Staff') }}
+                    </span>
+                    <a href="/logout" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all text-sm">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                    </a>
+                </div>
+            </div>
         </header>
 
-        <div class="grid md:grid-cols-2 gap-8">
-            <div class="bg-white rounded-lg shadow-lg p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                    <i class="fas fa-plus-circle text-green-600"></i>
-                    Register New Product
-                </h2>
-                
-                <form id="registerForm" class="space-y-4">
+        <div class="flex gap-6">
+            <!-- Sidebar Navigation -->
+            <div class="w-64 bg-white rounded-lg shadow-lg p-4">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">Management Options</h3>
+                <div class="space-y-2">
+                    <button onclick="showSection('register')" id="registerBtn"
+                        class="w-full text-left px-4 py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-all">
+                        <i class="fas fa-plus-circle mr-2"></i>Register New Product
+                    </button>
+                    <button onclick="showSection('update')" id="updateBtn"
+                        class="w-full text-left px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-all">
+                        <i class="fas fa-edit mr-2"></i>Update Product Stage
+                    </button>
+                    <button onclick="showSection('search')" id="searchBtn"
+                        class="w-full text-left px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-all">
+                        <i class="fas fa-search mr-2"></i>Search Product
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="flex-1">
+                <!-- Register Product Section -->
+                <div id="registerSection" class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <i class="fas fa-plus-circle text-green-600"></i>
+                        Register New Product
+                    </h2>
+                    
+                    <form id="registerForm" class="space-y-4">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">Product ID *</label>
                         <input type="text" id="productId" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                            placeholder="e.g., BANANA-001">
+                            placeholder="e.g., APPLE-001, TOMATO-001, RICE-001">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Product Category *</label>
+                        <select id="category" required onchange="updateProductOptions()"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                            <option value="">-- Select Category --</option>
+                            ''' + ''.join([f'<option value="{category}">{category}</option>' for category in FOOD_CATEGORIES.keys()]) + '''
+                        </select>
                     </div>
                     
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">Product Name *</label>
-                        <input type="text" id="productName" value="Banana" required
-                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-50"
-                            readonly>
+                        <select id="productName" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                            <option value="">-- Select Product --</option>
+                        </select>
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Banana Variety *</label>
-                        <select id="variety" required
-                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                            ''' + ''.join([f'<option value="{variety}">{variety}</option>' for variety in BANANA_VARIETIES]) + '''
-                        </select>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Custom Product (Optional)</label>
+                        <input type="text" id="customProduct" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="Enter custom product name if not in list">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Variety/Type (Optional)</label>
+                        <input type="text" id="variety" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="e.g., Organic, Premium, Local">
                     </div>
                     
                     <div>
@@ -458,10 +785,19 @@ BACKEND_HTML = '''
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Farm Location (Tamil Nadu) *</label>
-                        <select id="farmLocation" required
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">State *</label>
+                        <select id="state" required onchange="updateCityOptions()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                            ''' + ''.join([f'<option value="{location}">{location}</option>' for location in TAMIL_NADU_LOCATIONS]) + '''
+                            <option value="">-- Select State --</option>
+                            ''' + ''.join([f'<option value="{state}">{state}</option>' for state in INDIA_STATES_CITIES.keys()]) + '''
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">City *</label>
+                        <select id="city" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                            <option value="">-- Select City --</option>
                         </select>
                     </div>
                     
@@ -501,15 +837,17 @@ BACKEND_HTML = '''
 
                 <div id="registerResult" class="mt-4 hidden"></div>
                 <div id="qrCodeDisplay" class="mt-4 hidden"></div>
-            </div>
+                </form>
+                </div>
 
-            <div class="bg-white rounded-lg shadow-lg p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                    <i class="fas fa-edit text-blue-600"></i>
-                    Update Product Stage
-                </h2>
-                
-                <form id="updateForm" class="space-y-4">
+                <!-- Update Product Section -->
+                <div id="updateSection" class="bg-white rounded-lg shadow-lg p-6 hidden">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <i class="fas fa-edit text-blue-600"></i>
+                        Update Product Stage
+                    </h2>
+                    
+                    <form id="updateForm" class="space-y-4">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">Product ID *</label>
                         <input type="text" id="updateProductId" required
@@ -531,11 +869,19 @@ BACKEND_HTML = '''
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Location (Tamil Nadu)</label>
-                        <select id="updateLocation"
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">State</label>
+                        <select id="updateState" onchange="updateCityOptionsForUpdate()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">-- Select Location --</option>
-                            ''' + ''.join([f'<option value="{location}">{location}</option>' for location in TAMIL_NADU_LOCATIONS]) + '''
+                            <option value="">-- Select State --</option>
+                            ''' + ''.join([f'<option value="{state}">{state}</option>' for state in INDIA_STATES_CITIES.keys()]) + '''
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">City</label>
+                        <select id="updateCity"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="">-- Select City --</option>
                         </select>
                     </div>
                     
@@ -574,31 +920,130 @@ BACKEND_HTML = '''
                 </form>
 
                 <div id="updateResult" class="mt-4 hidden"></div>
-            </div>
-        </div>
+                </form>
+                </div>
 
-        <div class="bg-white rounded-lg shadow-lg p-6 mt-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <i class="fas fa-search text-purple-600"></i>
-                Search Product
-            </h2>
-            
-            <div class="flex gap-4">
-                <input type="text" id="searchProductId"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Enter Product ID">
-                <button onclick="searchProduct()"
-                    class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg">
-                    <i class="fas fa-search mr-2"></i>Search
-                </button>
-            </div>
+                <!-- Search Product Section -->
+                <div id="searchSection" class="bg-white rounded-lg shadow-lg p-6 hidden">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <i class="fas fa-search text-purple-600"></i>
+                        Search Product
+                    </h2>
+                    
+                    <div class="flex gap-4">
+                        <input type="text" id="searchProductId"
+                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            placeholder="Enter Product ID">
+                        <button onclick="searchProduct()"
+                            class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg">
+                            <i class="fas fa-search mr-2"></i>Search
+                        </button>
+                    </div>
 
-            <div id="searchResult" class="mt-6 hidden"></div>
+                    <div id="searchResult" class="mt-6 hidden"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         const API_URL = window.location.origin;
+        
+        // Food categories data
+        const FOOD_CATEGORIES = ''' + json.dumps(FOOD_CATEGORIES) + ''';
+        
+        // States and cities data
+        const INDIA_STATES_CITIES = ''' + json.dumps(INDIA_STATES_CITIES) + ''';
+
+        // Update city options based on selected state (for registration form)
+        function updateCityOptions() {
+            const state = document.getElementById('state').value;
+            const citySelect = document.getElementById('city');
+            
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+            
+            if (state && INDIA_STATES_CITIES[state]) {
+                INDIA_STATES_CITIES[state].forEach(city => {
+                    citySelect.innerHTML += `<option value="${city}">${city}</option>`;
+                });
+            }
+        }
+
+        // Update city options based on selected state (for update form)
+        function updateCityOptionsForUpdate() {
+            const state = document.getElementById('updateState').value;
+            const citySelect = document.getElementById('updateCity');
+            
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+            
+            if (state && INDIA_STATES_CITIES[state]) {
+                INDIA_STATES_CITIES[state].forEach(city => {
+                    citySelect.innerHTML += `<option value="${city}">${city}</option>`;
+                });
+            }
+        }
+
+        // Update product options based on category
+        function updateProductOptions() {
+            const category = document.getElementById('category').value;
+            const productSelect = document.getElementById('productName');
+            
+            productSelect.innerHTML = '<option value="">-- Select Product --</option>';
+            
+            if (category && FOOD_CATEGORIES[category]) {
+                FOOD_CATEGORIES[category].forEach(item => {
+                    productSelect.innerHTML += `<option value="${item}">${item}</option>`;
+                });
+            }
+        }
+
+        // Section switching function
+        function showSection(section) {
+            // Hide all sections
+            document.getElementById('registerSection').classList.add('hidden');
+            document.getElementById('updateSection').classList.add('hidden');
+            document.getElementById('searchSection').classList.add('hidden');
+            
+            // Reset all button styles
+            document.getElementById('registerBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-all';
+            document.getElementById('updateBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-all';
+            document.getElementById('searchBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-all';
+            
+            // Show selected section and highlight button
+            if (section === 'register') {
+                document.getElementById('registerSection').classList.remove('hidden');
+                document.getElementById('registerBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-all';
+            } else if (section === 'update') {
+                document.getElementById('updateSection').classList.remove('hidden');
+                document.getElementById('updateBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-all';
+            } else if (section === 'search') {
+                document.getElementById('searchSection').classList.remove('hidden');
+                document.getElementById('searchBtn').className = 'w-full text-left px-4 py-3 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-all';
+            }
+        }
+
+        // Handle custom product input
+        document.addEventListener('DOMContentLoaded', function() {
+            const customProductInput = document.getElementById('customProduct');
+            const productNameSelect = document.getElementById('productName');
+            
+            if (customProductInput && productNameSelect) {
+                customProductInput.addEventListener('input', function() {
+                    if (this.value.trim()) {
+                        productNameSelect.value = '';
+                        productNameSelect.required = false;
+                    } else {
+                        productNameSelect.required = true;
+                    }
+                });
+
+                productNameSelect.addEventListener('change', function() {
+                    if (this.value) {
+                        customProductInput.value = '';
+                    }
+                });
+            }
+        });
 
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -616,11 +1061,11 @@ BACKEND_HTML = '''
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         productId: document.getElementById('productId').value.trim().toUpperCase(),
-                        productName: document.getElementById('productName').value,
+                        productName: document.getElementById('customProduct').value.trim() || document.getElementById('productName').value,
                         variety: document.getElementById('variety').value,
                         quantity: document.getElementById('quantity').value,
                         qualityGrade: document.getElementById('qualityGrade').value,
-                        farmLocation: document.getElementById('farmLocation').value,
+                        farmLocation: document.getElementById('state').value + ', ' + document.getElementById('city').value,
                         temperature: document.getElementById('temperature').value,
                         humidity: document.getElementById('humidity').value,
                         farmerName: document.getElementById('farmerName').value,
@@ -706,7 +1151,7 @@ BACKEND_HTML = '''
                     body: JSON.stringify({
                         productId: document.getElementById('updateProductId').value.trim().toUpperCase(),
                         stage: document.getElementById('stage').value,
-                        location: document.getElementById('updateLocation').value,
+                        location: document.getElementById('updateState').value + ', ' + document.getElementById('updateCity').value,
                         temperature: document.getElementById('updateTemperature').value,
                         humidity: document.getElementById('updateHumidity').value,
                         handlerName: document.getElementById('handlerName').value,
@@ -885,11 +1330,23 @@ CUSTOMER_HTML = '''
 <body class="bg-gradient-to-br from-green-50 to-blue-50 min-h-screen">
     <div class="max-w-6xl mx-auto p-4 md:p-8">
         <header class="bg-gradient-to-r from-green-600 to-blue-600 text-white p-6 md:p-10 rounded-2xl shadow-2xl mb-8 text-center">
-            <h1 class="text-3xl md:text-5xl font-bold mb-3 flex items-center justify-center gap-3">
-                <i class="fas fa-leaf"></i>
-                Farm Supply Chain Tracker
-            </h1>
-            <p class="text-base md:text-xl text-green-100">Verify your product's journey from farm to table</p>
+            <div class="flex justify-between items-center">
+                <div class="flex-1">
+                    <h1 class="text-3xl md:text-5xl font-bold mb-3 flex items-center justify-center gap-3">
+                        <i class="fas fa-leaf"></i>
+                        Farm Supply Chain Tracker
+                    </h1>
+                    <p class="text-base md:text-xl text-green-100">Verify your product's journey from farm to table</p>
+                </div>
+                <div class="flex gap-2">
+                    <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold">
+                        <i class="fas fa-user mr-1"></i>{{ session.get('user', 'Customer') }}
+                    </span>
+                    <a href="/logout" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all text-sm">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                    </a>
+                </div>
+            </div>
         </header>
 
         <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 mb-8">
@@ -898,7 +1355,7 @@ CUSTOMER_HTML = '''
             <div class="flex flex-col md:flex-row gap-4 items-center mb-6">
                 <input type="text" id="searchId" 
                     class="flex-1 px-6 py-4 text-lg border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-green-500 focus:border-green-500 transition-all"
-                    placeholder="Enter Product ID (e.g., BANANA-001)">
+                    placeholder="Enter Product ID (e.g., APPLE-001, TOMATO-001)">
                 <button onclick="searchProduct()"
                     class="w-full md:w-auto px-8 py-4 bg-gradient-to-r from-green-600 to-blue-600 text-white text-lg font-bold rounded-xl hover:from-green-700 hover:to-blue-700 transition-all transform hover:scale-105 shadow-lg">
                     <i class="fas fa-search mr-2"></i>Track Product
@@ -1298,42 +1755,22 @@ CUSTOMER_HTML = '''
 </html>
 '''
 
-# Run both servers
-def run_backend():
-    backend_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-
-def run_customer():
-    customer_app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
-
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("SERVERS STARTING...")
+    print("FARM SUPPLY CHAIN - UNIFIED SYSTEM")
     print("=" * 60)
-    print("Backend Management UI: http://localhost:5000")
-    print("Customer Tracking UI:  http://localhost:5001")
-    print(f"QR Codes Directory:    {os.path.abspath(QR_CODE_DIR)}")
+    print("Server running on: http://localhost:5000")
+    print(f"QR Codes Directory: {os.path.abspath(QR_CODE_DIR)}")
     print("=" * 60)
     print("\nHow to use:")
-    print("1. Open http://localhost:5000 to register/update products")
-    print("2. Register a banana with ID like 'BANANA-001'")
-    print("3. QR code will be automatically generated and saved")
-    print("4. Download the QR code from the interface")
-    print("5. Scan QR code or open http://localhost:5001 to track")
+    print("1. Open http://localhost:5000")
+    print("2. Login or register an account")
+    print("3. Staff accounts can register/update products")
+    print("4. Customer accounts can track products")
+    print("\nDemo Accounts:")
+    print("- Staff: admin / admin123")
+    print("- Customer: customer / customer123")
     print("=" * 60 + "\n")
     
-    # Start both servers in separate threads
-    import time
-    backend_thread = threading.Thread(target=run_backend, daemon=True)
-    customer_thread = threading.Thread(target=run_customer, daemon=True)
-    
-    backend_thread.start()
-    customer_thread.start()
-    
-    # Keep main thread alive
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n\nShutting down servers...")
-        print("Goodbye!")
+    app.run(host='0.0.0.0', port=5000, debug=True)
 

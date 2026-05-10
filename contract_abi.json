@@ -1,10 +1,5 @@
 [
   {
-    "inputs": [],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
     "anonymous": false,
     "inputs": [
       {
@@ -14,16 +9,16 @@
         "type": "string"
       },
       {
-        "indexed": false,
-        "internalType": "string",
-        "name": "productName",
-        "type": "string"
-      },
-      {
         "indexed": true,
         "internalType": "address",
         "name": "farmer",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
       }
     ],
     "name": "ProductRegistered",
@@ -52,9 +47,9 @@
       },
       {
         "indexed": false,
-        "internalType": "string",
-        "name": "handlerName",
-        "type": "string"
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
       }
     ],
     "name": "ProductUpdated",
@@ -167,22 +162,9 @@
             "type": "string"
           }
         ],
-        "internalType": "struct FarmSupplyChain.TrackingUpdate[]",
+        "internalType": "struct FarmSupplyChain.StageUpdate[]",
         "name": "",
         "type": "tuple[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -269,6 +251,25 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "productIds",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "string",
         "name": "",
         "type": "string"
@@ -323,7 +324,7 @@
       },
       {
         "internalType": "bool",
-        "name": "isActive",
+        "name": "exists",
         "type": "bool"
       }
     ],
@@ -389,19 +390,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "totalProducts",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "string",
@@ -410,7 +398,7 @@
       },
       {
         "internalType": "enum FarmSupplyChain.Stage",
-        "name": "_newStage",
+        "name": "_stage",
         "type": "uint8"
       },
       {
